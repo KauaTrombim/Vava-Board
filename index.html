@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VavaBoard</title>
+  <script>try { document.documentElement.classList.toggle('dark', (localStorage.getItem('vd-theme') || 'dark') === 'dark'); } catch (e) { document.documentElement.classList.add('dark'); }</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: {
+        colors: Object.fromEntries(['bg', 'panel', 'line', 'ink', 'mute', 'ally', 'enemy', 'accent']
+          .map((c) => [c, `rgb(var(--${c}) / <alpha-value>)`])),
+        fontFamily: { display: ['"Barlow Condensed"', 'sans-serif'], body: ['"DM Sans"', 'sans-serif'] },
+      } },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    /* ===== TOKENS DE COR (canais RGB) — para mudar a paleta, edite aqui ===== */
+    :root { --bg: 236 232 225; --panel: 250 248 244; --line: 208 202 192; --ink: 15 25 35; --mute: 98 108 118; --ally: 8 140 120; --enemy: 214 48 62; --accent: 255 70 85; }
+    .dark { --bg: 15 25 35; --panel: 22 34 46; --line: 44 58 72; --ink: 236 232 225; --mute: 138 150 163; --ally: 46 230 197; --enemy: 255 70 85; --accent: 255 70 85; }
+    body { font-family: 'DM Sans', sans-serif; font-variant-numeric: tabular-nums; }
+    .cut { clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 16px 100%, 0 calc(100% - 16px)); }
+    .cut-sm { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px)); }
+    /* mapa cinza sobre fundo branco: mistura com o painel em cada tema */
+    .mapimg { opacity: .6; mix-blend-mode: multiply; }
+    .dark .mapimg { filter: invert(1); mix-blend-mode: screen; opacity: .35; }
+    @keyframes chipin { from { opacity: 0; transform: translateY(10px) scaleY(.5); } to { opacity: 1; transform: none; } }
+    .animate-chip { animation: chipin .5s cubic-bezier(.2, .8, .2, 1) both; }
+    body.drag::after { content: 'Solte o arquivo da partida'; position: fixed; inset: 12px; z-index: 50; display: grid; place-items: center;
+      border: 2px dashed rgb(var(--accent)); background: rgb(var(--bg) / .85); font: 700 2rem 'Barlow Condensed'; color: rgb(var(--accent)); }
+    :focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body class="bg-bg text-ink">
+<div class="flex min-h-screen flex-col lg:flex-row">
+
+  <div class="min-w-0 flex-1">
+    <!-- ============ CABEÇALHO: logo + dados da partida em ícones ============ -->
+    <header class="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line px-4 py-3">
+      <div class="flex items-center gap-3">
+        <!-- Logo: troque o src para mudar. O fundo vermelho se adapta à largura da imagem. -->
+        <span class="cut-sm flex h-11 items-center bg-accent px-2.5">
+          <img src="https://www.citypng.com/public/uploads/preview/hd-valorant-white-official-logo-with-symbol-png-701751694788076hx3eqqqtmc.png?v=2026062112"
+               alt="Valorant" class="h-8 w-auto max-w-[9rem] object-contain"
+               onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'font-display text-2xl font-bold text-white',textContent:'V'}))" />
+        </span>
+        <span class="font-display text-2xl font-bold tracking-wide">VavaBoard</span>
+      </div>
+      <div id="matchMeta" class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm"></div>
+    </header>
+
+    <main class="mx-auto max-w-7xl space-y-4 px-4 py-4">
+      <section id="empty" class="cut bg-panel p-10 text-center sm:p-14">
+        <h1 class="font-display text-5xl font-bold sm:text-6xl">Lendo a pasta data</h1>
+        <p id="emptyHint" class="mx-auto mt-4 max-w-lg text-mute">Procurando partidas na pasta data, ao lado do index.html. Se nada aparecer, você também pode arrastar um JSON de partida para esta página.</p>
+      </section>
+
+      <div id="dash" class="hidden space-y-4">
+        <section id="hero"></section>
+
+        <!-- Jogador em destaque: todos os indicadores num único bloco -->
+        <section id="kpis" class="cut bg-panel p-4"></section>
+
+        <!-- Rounds + mapa sincronizados -->
+        <section class="grid gap-4 lg:grid-cols-12">
+          <article class="cut bg-panel p-4 lg:col-span-7">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Rounds</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Clique em um round para ver os abates e destacá-los no mapa. Clique de novo para voltar a todos."></span></div>
+            <div id="timeline" class="flex flex-wrap gap-1.5"></div>
+            <div id="roundDetail" class="mt-4 border-t border-line pt-3 text-sm"></div>
+          </article>
+          <article id="mapCard" class="cut bg-panel p-4 lg:col-span-5">
+            <div class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-mute">
+              <h2 class="mr-auto font-display text-2xl font-semibold text-ink">Mapa de abates</h2>
+              <span class="flex items-center gap-1" title="Abates da sua equipe"><i class="h-2.5 w-2.5 rounded-full bg-ally"></i>Aliados</span>
+              <span class="flex items-center gap-1" title="Abates inimigos"><i class="h-2.5 w-2.5 rounded-full bg-enemy"></i>Inimigos</span>
+              <span class="flex items-center gap-1" title="Abates do jogador em destaque"><i class="h-2.5 w-2.5 rounded-full bg-accent"></i>Jogador</span>
+              <span class="flex items-center gap-1" title="Spike plantada"><i class="h-0 w-0 border-x-[5px] border-b-[9px] border-x-transparent border-b-ink"></i>Spike</span>
+            </div>
+            <div id="mapBox" class="relative mx-auto aspect-square w-full max-w-lg">
+              <img id="mapImg" class="mapimg absolute inset-0 h-full w-full select-none" alt="" />
+              <canvas id="cKills"></canvas>
+            </div>
+          </article>
+        </section>
+
+        <!-- Gráficos -->
+        <section class="grid gap-4 lg:grid-cols-12">
+          <article class="cut bg-panel p-4 lg:col-span-8">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Economia e saldo</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Barras: valor total do equipamento por round. Linha: diferença acumulada de rounds ganhos."></span></div>
+            <div class="relative h-64"><canvas id="cRounds"></canvas></div>
+          </article>
+          <article class="cut bg-panel p-4 lg:col-span-4">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Vitórias por tipo</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Anel de cada equipe por tipo de vitória: eliminação, spike detonada ou desarmada."></span></div>
+            <div class="relative h-64"><canvas id="cEnd"></canvas></div>
+          </article>
+          <article class="cut bg-panel p-4 lg:col-span-7">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Jogadores</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Barras: ACS (score médio por round). Losangos: K/D."></span></div>
+            <div class="relative h-64"><canvas id="cPlayers"></canvas></div>
+          </article>
+          <article class="cut bg-panel p-4 lg:col-span-5">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Perfil</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Cada eixo vai de 0 a 100, em relação ao melhor valor da partida."></span></div>
+            <div class="relative h-64"><canvas id="cRadar"></canvas></div>
+          </article>
+          <article class="cut bg-panel p-4 lg:col-span-12">
+            <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Round a round do jogador</h2>
+              <span data-icon="info" class="cursor-help text-mute" title="Abates sobem, mortes descem. Linha: dano causado."></span></div>
+            <div class="relative h-60"><canvas id="cPlayerRounds"></canvas></div>
+          </article>
+        </section>
+
+        <section class="cut overflow-x-auto bg-panel p-4">
+          <div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Placar</h2>
+            <span data-icon="info" class="cursor-help text-mute" title="Clique em um jogador para ver a partida pela perspectiva dele."></span></div>
+          <table id="board" class="w-full min-w-[640px] text-left text-sm"></table>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- ============ BARRA DE CONFIGURAÇÃO (lateral esquerda) ============ -->
+  <aside class="order-first w-full shrink-0 space-y-5 border-b border-line bg-panel p-4 lg:sticky lg:top-0 lg:order-first lg:h-screen lg:w-60 lg:overflow-y-auto lg:border-b-0 lg:border-r">
+    <h2 class="font-display text-xl font-semibold">Configurações</h2>
+    <div id="matchGroup" class="hidden">
+      <label for="matchSelect" class="mb-1 flex items-center gap-2 text-xs text-mute"><span data-icon="map"></span>Partida</label>
+      <select id="matchSelect" class="w-full border border-line bg-bg px-2 py-2 text-sm"></select>
+    </div>
+    <div>
+      <label for="playerSelect" class="mb-1 flex items-center gap-2 text-xs text-mute"><span data-icon="user"></span>Jogador em destaque</label>
+      <select id="playerSelect" class="w-full border border-line bg-bg px-2 py-2 text-sm"></select>
+    </div>
+    <div class="flex gap-2">
+      <button id="btnTheme" type="button" title="Alternar tema claro e escuro" class="flex flex-1 items-center justify-center gap-2 border border-line bg-bg px-3 py-2 text-sm hover:border-accent"><span data-icon="contrast"></span>Tema</button>
+      <input id="fileInput" type="file" accept=".json,application/json" class="sr-only" />
+      <label for="fileInput" title="Abrir um JSON de partida manualmente" class="flex flex-1 cursor-pointer items-center justify-center gap-2 bg-accent px-3 py-2 text-sm font-bold text-white hover:brightness-110"><span data-icon="upload"></span>Abrir</label>
+    </div>
+    <div class="space-y-1.5 border-t border-line pt-4 text-xs text-mute">
+      <p class="mb-2 font-bold text-ink">Legenda</p>
+      <p class="flex items-center gap-2"><i class="h-3 w-3 border-b-2 border-ally bg-ally/30"></i>Round da sua equipe</p>
+      <p class="flex items-center gap-2"><i class="h-3 w-3 border-b-2 border-enemy bg-enemy/30"></i>Round inimigo</p>
+      <p class="flex items-center gap-2"><b class="w-3 text-center text-ink">A D</b>Lado de quem venceu</p>
+      <p class="flex items-center gap-2"><span data-icon="sword"></span>Rounds ganhos no ataque</p>
+      <p class="flex items-center gap-2"><span data-icon="shield"></span>Rounds ganhos na defesa</p>
+    </div>
+    <p class="text-xs text-mute">Dados lidos localmente no navegador.</p>
+  </aside>
+</div>
+
+<div id="toast" role="status" class="fixed bottom-4 left-1/2 z-50 hidden -translate-x-1/2 bg-enemy px-4 py-2 text-sm font-bold text-white"></div>
+
+<!-- Ordem importa: leitura de dados primeiro, interface depois -->
+<script src="dataLoader.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
