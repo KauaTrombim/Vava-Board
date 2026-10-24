@@ -6,7 +6,7 @@
 (function (VD) {
   'use strict';
   const $ = (s) => document.querySelector(s);
-  const state = { match: null, matches: [], me: null, round: null, charts: {}, catalog: null, selectedTeamId: null, selectedTeamName: null, selectedSide: null, selectedPlayerId: null, overview: true, aggregatePlayers: [], activeEntry: null, loadToken: 0, kill: null };
+  const state = { match: null, matches: [], me: null, round: null, charts: {}, catalog: null, selectedTeamId: null, selectedTeamName: null, selectedSide: null, selectedPlayerId: null, overview: true, aggregatePlayers: [], activeEntry: null, loadToken: 0, kill: null, compare: false };
   const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /* ---- Configuração (edite aqui) ---- */
   // Pastas de dados, testadas em ordem. 'data/' fica ao lado do index.html (estrutura do VavaBoard);
@@ -154,9 +154,56 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
     }).join('');
   }
 
+  /* ---- Navegação de rounds (mapa + lista) ---- */
+  function selectRound(i) { // i = índice do round, ou null = modo padrão (todos os rounds juntos)
+    const n = state.match.rounds.length;
+    state.round = i == null ? null : Math.max(0, Math.min(n - 1, i)); state.kill = null;
+    renderTimeline(false); renderRound(); renderRoster(); renderRoundNav(); redrawMap();
+  }
+  function renderRoundNav() {
+    if (!state.match) return;
+    const n = state.match.rounds.length, cur = state.round;
+    const btn = 'border border-line px-2 py-1 text-xs hover:border-accent disabled:cursor-not-allowed disabled:opacity-40';
+    const controls = `<button type="button" data-nav="all" class="${btn} ${cur == null ? 'bg-accent/20' : ''}" title="Voltar ao modo padrão: todos os abates da partida juntos">Todos os rounds</button>` +
+      `<button type="button" data-nav="prev" class="${btn}" ${cur == null || cur <= 0 ? 'disabled' : ''} aria-label="Round anterior" title="Round anterior (seta ←)">◀</button>` +
+      `<span class="min-w-[5.5rem] text-center text-xs text-mute">${cur == null ? 'Todos os rounds' : 'Round ' + (cur + 1) + ' / ' + n}</span>` +
+      `<button type="button" data-nav="next" class="${btn}" ${cur != null && cur >= n - 1 ? 'disabled' : ''} aria-label="Próximo round" title="Próximo round (seta →)">▶</button>` +
+      `<label class="flex items-center gap-1 text-xs text-mute" title="Mostra no mapa os abates do round anterior (círculos vazios) e compara os dois rounds"><input type="checkbox" data-nav="compare" ${state.compare ? 'checked' : ''} />Comparar com o anterior</label>`;
+    const small = $('#roundNav'); if (small) small.innerHTML = controls;
+    const big = $('#mapRoundNav');
+    if (big) {
+      const chips = state.match.rounds.map((r, i) => { const t = tone(r.winner); return `<button type="button" data-round="${i}" title="Round ${r.num}: ${ROLE_PT[r.role]} venceu" class="${cur === i ? 'ring-2 ring-ink' : ''} h-6 w-7 border-b-2 border-${t} bg-${t}/20 text-xs font-bold text-${t} hover:bg-${t}/40">${r.num}</button>`; }).join('');
+      big.innerHTML = `<div class="flex flex-wrap items-center gap-2">${controls}</div><div class="mt-2 flex flex-wrap gap-1">${chips}</div>`;
+    }
+  }
+  let roundHtml = '';
+  function placeMapDetail() { // cópia da lista de abates dentro do card do mapa (fica visível com o mapa ampliado)
+    const host = $('#mapInsights'); if (!host) return;
+    let d = host.querySelector('#mapRoundDetail');
+    if (!d) { d = document.createElement('div'); d.id = 'mapRoundDetail'; d.style.gridColumn = '1 / -1'; d.className = 'border-t border-line pt-3 text-sm'; host.appendChild(d); }
+    d.innerHTML = roundHtml; d.hidden = state.round == null;
+  }
+  function compareHtml() {
+    const m = state.match, i = state.round, my = myTeam();
+    if (!state.compare || i == null) return '';
+    if (i === 0) return '<p class="mt-3 border-t border-line pt-2 text-xs text-mute">Comparação: este é o primeiro round, não há round anterior.</p>';
+    const mine = m.players.find((p) => p.puuid === state.me);
+    const col = (idx) => {
+      const r = m.rounds[idx], pr = (mine && mine.perRound[idx]) || {}, role = r.winner === my ? r.role : (r.role === 'Attacker' ? 'Defender' : 'Attacker');
+      return [r.winner === my ? 'Vitória' : 'Derrota', END_PT[r.type] || r.type, role === 'Attacker' ? 'Ataque' : 'Defesa', mmss(r.endMs),
+        r.planted ? mmss(r.plantMs) : '—', r.kills.filter((k) => k.killerTeam === my).length + ' x ' + r.kills.filter((k) => k.killerTeam !== my).length,
+        fmt(r.loadout[my]) + ' x ' + fmt(r.loadout[enemyTeam()]), fmt(r.spent[my]),
+        (pr.k || 0) + '/' + (pr.d || 0) + ' · ' + fmt(pr.dmg || 0) + ' dano', fmt(pr.spent || 0) + ' gasto · ' + ((pr.aliveMs || 0) / 1000).toFixed(0) + 's vivo'];
+    };
+    const labels = ['Resultado', 'Como terminou', 'Lado', 'Duração (estimada)', 'Spike plantada', 'Abates (equipe x inimigos)', 'Equipamento (equipe x inimigos)', 'Gasto da equipe', 'Jogador: A/M · dano', 'Jogador: economia'];
+    const a = col(i - 1), b = col(i);
+    return `<div class="mt-3 border-t border-line pt-2"><p class="mb-1 text-xs font-bold text-ink">Comparação: round ${m.rounds[i - 1].num} x round ${m.rounds[i].num}</p><table class="w-full text-left text-xs"><thead class="text-mute"><tr><th class="font-normal"></th><th class="px-1 font-normal">R${m.rounds[i - 1].num}</th><th class="px-1 font-normal">R${m.rounds[i].num}</th></tr></thead><tbody>` +
+      labels.map((l, k) => `<tr class="border-t border-line/50"><td class="py-1 text-mute">${l}</td><td class="px-1">${a[k]}</td><td class="px-1 font-bold">${b[k]}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+
   function renderRound() {
     const el = $('#roundDetail'), r = state.match.rounds[state.round];
-    if (!r) { el.innerHTML = '<p class="text-mute">Selecione um round para ver os abates aqui e no mapa. Depois clique em um abate para ver onde todos estavam naquele momento.</p>'; return; }
+    if (!r) { el.innerHTML = '<p class="text-mute">Selecione um round para ver os abates aqui e no mapa. Depois clique em um abate para ver onde todos estavam naquele momento.</p>'; roundHtml = ''; placeMapDetail(); return; }
     const mine = state.match.players.find((p) => p.puuid === state.me);
     const my = mine && mine.perRound && mine.perRound[state.round];
     const facts = [];
@@ -173,17 +220,20 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
         `${k.assists.length ? `, assist: ${k.assists.map(named).join(', ')}` : ''}</button></li>`;
     }).join('');
     const fx = (r.effects || []).map((e) => named(e.puuid) + ': ' + Object.entries(e).filter(([key, v]) => key.endsWith('Effects') && v).map(([key, v]) => key.replace('Effects', '') + ' ' + esc(typeof v === 'object' ? JSON.stringify(v) : v)).join(', '));
-    el.innerHTML = head + `<ul class="space-y-0.5">${rows || '<li class="text-mute">Sem abates registrados.</li>'}</ul>` +
+    roundHtml = head + `<ul class="space-y-0.5">${rows || '<li class="text-mute">Sem abates registrados.</li>'}</ul>` +
       (fx.length ? '<p class="mt-2 text-xs text-mute">Efeitos de habilidade registrados:</p><ul class="text-xs text-mute">' + fx.map((f) => '<li>' + f + '</li>').join('') + '</ul>' : '');
+    roundHtml += compareHtml();
+    el.innerHTML = roundHtml; placeMapDetail();
   }
 
-  function renderMapInsights() {
+  function renderMapInsights() { renderMapInsightsBase(); placeMapDetail(); }
+  function renderMapInsightsBase() {
     const host = $('#mapInsights');
     if (!host || !state.match) return;
     const deaths = state.match.kills.filter((k) => k.victim === state.me);
     const weapons = new Map(), areas = new Map(), teamAreas = new Map();
     deaths.forEach((k) => {
-      if (k.weaponId) weapons.set(k.weaponId, (weapons.get(k.weaponId) || 0) + 1);
+      if (k.weaponId) weapons.set(k.weaponName || k.weaponId, (weapons.get(k.weaponName || k.weaponId) || 0) + 1);
       if (k.nx != null && k.ny != null) {
         const area = Math.round(k.nx * 10) * 10 + '% / ' + Math.round(k.ny * 10) * 10 + '%';
         areas.set(area, (areas.get(area) || 0) + 1);
@@ -243,7 +293,7 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
   function themeCharts() {
     const C = Chart.defaults;
     C.color = css('mute'); C.borderColor = css('line', 0.6); C.font.family = "'DM Sans', sans-serif";
-    C.animation = REDUCED ? false : { duration: 900, easing: 'easeOutQuart' };
+    C.animation = REDUCED ? false : { duration: 600, easing: 'easeOutQuart' };
     C.plugins.legend.labels.usePointStyle = true; C.plugins.legend.labels.boxWidth = 8;
     /* Legenda: o marcador herdava backgroundColor (alpha .18 / array) e ficava vazio.
      * Agora usa dataset.legendColor ou a cor da borda, sempre sólida. */
@@ -409,6 +459,8 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
       r: ev.round, eventType: 'pos', puuid: q.puuid, t: ev.t, tone: q.puuid === state.me ? 'accent' : (q.team === myTeam() ? 'ally' : 'enemy'),
       role: q.puuid === ev.killer ? 'Eliminador' : q.puuid === ev.victim ? 'Vítima' : 'Em campo' })).filter(Boolean) : [];
     const linePts = ev && Number.isFinite(ev.killerNx) ? [VD.mapPoints.point(mapImage, ev.killerNx, ev.killerNy, { eventType: 'line' }), VD.mapPoints.point(mapImage, ev.nx, ev.ny, { eventType: 'line' })].filter(Boolean) : [];
+    const ghostPts = state.compare && state.round != null && state.round > 0
+      ? (m.rounds[state.round - 1].kills || []).filter((k) => Number.isFinite(k.nx) && inFocus(k)).map((k) => VD.mapPoints.point(mapImage, k.nx, k.ny, { ...k, r: k.round, eventType: 'kill' })).filter(Boolean) : [];
     make('cKills', 'scatter', {
       datasets: [
         ds('Calor: equipe', heatPts((k) => k.victimTeam === myTeam() && k.victim !== state.me), 'ally', 16, { backgroundColor: () => css('ally', 0.18), borderColor: () => css('ally', 0.08), pointRadius: 16 }),
@@ -419,6 +471,7 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
         ds('Abates do jogador', killPts((k) => k.killer === state.me), 'accent', 6),
         ds('Spike plantada', plantPts, 'ink', 7, { pointStyle: 'triangle' }),
         ds('Posição do eliminador', killerPts, 'ink', 5, { pointStyle: 'rectRot', backgroundColor: (c) => css((c.raw || {}).killerTeam === myTeam() ? 'ally' : 'enemy', hit(c.raw) ? 0.25 : 0.05), borderColor: (c) => css('ink', hit(c.raw) ? 0.9 : 0.2), borderWidth: 2 }),
+        { label: 'Round anterior', data: ghostPts, pointStyle: 'circle', pointRadius: 5, borderWidth: 2, backgroundColor: 'rgba(0,0,0,0)', borderColor: (c) => css(((c.raw || {}).killerTeam === myTeam()) ? 'ally' : 'enemy', 0.9), order: 3 },
         { label: 'Linha do abate', data: linePts, showLine: true, borderColor: css('ink', 0.7), borderDash: [5, 4], borderWidth: 2, pointRadius: 0, order: -2 },
         { label: 'Posições no abate', data: posPts, order: -1, borderWidth: 2,
           backgroundColor: (c) => css((c.raw || {}).tone || 'ink', 0.95), borderColor: (c) => css((c.raw || {}).role === 'Em campo' ? 'panel' : 'ink', 1),
@@ -452,15 +505,17 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
   const visible = (id) => { const c = document.getElementById(id); return !!c && c.getClientRects().length > 0; };
   const registerChart = (id, fn) => { CHART_FNS[id] = fn; };
   const onRender = (fn) => { renderHooks.push(fn); };
-  function syncCharts() {
+  /* force=true (troca de aba): recria todos os gráficos visíveis, do zero, com o tamanho atual.
+   * Gráficos escondidos não são tocados (redimensionar escondido deixava o canvas com 0x0). */
+  function syncCharts(force) {
     if (!state.match) return;
     themeCharts();
-    [...dirty].forEach((id) => {
+    Object.keys(CHART_FNS).forEach((id) => {
       if (!visible(id)) return;
+      if (!force && !dirty.has(id)) return;
       dirty.delete(id);
-      try { CHART_FNS[id](); } catch (err) { console.error('[VavaBoard] erro no gráfico ' + id + ':', err); }
+      try { CHART_FNS[id](); } catch (err) { console.error('[VavaBoard] erro no gráfico ' + id + ':', err); toast('Erro no gráfico ' + id + ': ' + err.message); }
     });
-    VD.chartManager.resizeAll();
   }
   function redrawMap() { // refaz só o mapa (filtros, round, imagem carregada)
     if (!state.match) return;
@@ -478,7 +533,7 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
   const renderHooks = [];
   /* Cada etapa roda isolada: se uma falhar, as outras continuam e o erro aparece no console/toast. */
   function renderAll(animate) {
-    const steps = [renderMeta, renderHero, renderKpis, () => renderTimeline(animate), renderRound, renderRoster, renderMapInsights, renderBoard, renderCharts, ...renderHooks];
+    const steps = [renderMeta, renderHero, renderKpis, () => renderTimeline(animate), renderRound, renderRoundNav, renderRoster, renderMapInsights, renderBoard, renderCharts, ...renderHooks];
     const failed = [];
     steps.forEach((fn) => { try { fn(); } catch (err) { failed.push(fn.name || 'etapa'); console.error('[VavaBoard] erro em ' + (fn.name || 'etapa') + ':', err); } });
     try {
@@ -661,17 +716,33 @@ const DATA_DIRS = ['data/', '/data/', '../data/'];
     });
     ensureMapLayerVisible(); // filtros salvos com tudo desmarcado deixavam o mapa vazio
     $('#timeline').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-round]'); if (!b) return;
-      const i = +b.dataset.round;
-      state.round = state.round === i ? null : i; state.kill = null;
-      renderTimeline(false); renderRound(); renderRoster();
-      redrawMap(); // refaz o mapa (destaque do round e mapa térmico)
+      const b = e.target.closest('[data-round]'); if (!b || !state.match) return;
+      const i = +b.dataset.round; selectRound(state.round === i ? null : i);
     });
-    $('#roundDetail').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-kill]'); if (!b) return;
-      const i = +b.dataset.kill; state.kill = state.kill === i ? null : i;
-      renderRound(); redrawMap();
+    document.addEventListener('click', (e) => {
+      if (!state.match) return;
+      const nav = e.target.closest('button[data-nav]'), chip = e.target.closest('#mapRoundNav [data-round]'), kill = e.target.closest('[data-kill]');
+      const n = state.match.rounds.length, cur = state.round;
+      if (nav) {
+        if (nav.dataset.nav === 'all') selectRound(null);
+        else if (nav.dataset.nav === 'prev' && cur != null && cur > 0) selectRound(cur - 1);
+        else if (nav.dataset.nav === 'next') selectRound(cur == null ? 0 : Math.min(cur + 1, n - 1));
+      } else if (chip) { const i = +chip.dataset.round; selectRound(state.round === i ? null : i); }
+      else if (kill) { const i = +kill.dataset.kill; state.kill = state.kill === i ? null : i; renderRound(); redrawMap(); }
     });
+    document.addEventListener('change', (e) => {
+      if (!state.match || !e.target.matches || !e.target.matches('input[data-nav="compare"]')) return;
+      state.compare = e.target.checked; renderRound(); renderRoundNav(); redrawMap();
+    });
+    document.addEventListener('keydown', (e) => { // ← → trocam de round enquanto o mapa estiver visível
+      if (!state.match || !visible('cKills') || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target || {}).tagName || '')) return;
+      const n = state.match.rounds.length;
+      if (e.key === 'ArrowRight') { selectRound(state.round == null ? 0 : Math.min(state.round + 1, n - 1)); e.preventDefault(); }
+      else if (e.key === 'ArrowLeft' && state.round != null) { selectRound(Math.max(0, state.round - 1)); e.preventDefault(); }
+      else if (e.key === 'Escape' && state.round != null && !document.querySelector('[data-expanded="true"]')) selectRound(null);
+    });
+    window.addEventListener('error', (e) => toast('Erro: ' + e.message));
+    window.addEventListener('unhandledrejection', (e) => toast('Erro: ' + ((e.reason && e.reason.message) || e.reason)));
     $('#board').addEventListener('click', (e) => { const r = e.target.closest('[data-puuid]'); if (r) setMe(r.dataset.puuid); });
     VD.loader.bind({
       input: $('#fileInput'), dropTarget: document.body,

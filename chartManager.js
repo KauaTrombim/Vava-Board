@@ -11,10 +11,18 @@
   }
   function create(id, type, data, options = {}) {
     destroy(id);
-    const chart = new Chart(document.getElementById(id), {
+    const canvas = document.getElementById(id);
+    if (!canvas) throw new Error('canvas #' + id + ' não existe no index.html');
+    const chart = new Chart(canvas, {
       type, data, options: { responsive: true, maintainAspectRatio: false, ...options },
     });
     instances.set(id, chart);
+    /* Se o navegador pausar/atrasar o requestAnimationFrame (preview embutido, aba em segundo plano),
+     * a animação nunca começa e o canvas fica em branco. Aqui forçamos um desenho síncrono. */
+    setTimeout(() => {
+      if (instances.get(id) !== chart || !chart.canvas || !chart.canvas.isConnected) return;
+      try { if (!chart.width || !chart.height) chart.resize(); chart.update('none'); } catch (e) { /* gráfico já destruído */ }
+    }, 700);
     return chart;
   }
   function destroyAll() {

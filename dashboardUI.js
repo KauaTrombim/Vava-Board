@@ -15,7 +15,7 @@
         panels.forEach(function (panel) { panel.classList.toggle('hidden', panel.dataset.view !== String(i)); });
         Array.from(nav.children).forEach(function (item) { item.classList.toggle('bg-accent/20', item === button); });
         requestAnimationFrame(function () {
-          if (window.VD.app && window.VD.app.syncCharts) window.VD.app.syncCharts();
+          if (window.VD.app && window.VD.app.syncCharts) window.VD.app.syncCharts(true);
           else if (window.VD.chartManager) window.VD.chartManager.resizeAll();
         });
       });
@@ -41,7 +41,7 @@
             c.classList.toggle('border-accent', on); c.classList.toggle('text-ink', on);
             c.classList.toggle('border-transparent', !on); c.classList.toggle('text-mute', !on);
           });
-          requestAnimationFrame(function () { if (window.VD.app && window.VD.app.syncCharts) window.VD.app.syncCharts(); });
+          requestAnimationFrame(function () { if (window.VD.app && window.VD.app.syncCharts) window.VD.app.syncCharts(true); });
         });
         subNav.appendChild(b);
       });
@@ -112,7 +112,7 @@
           Array.from(mapCard.children).forEach(function (child) { child.setAttribute('style', child.dataset.savedStyle || ''); });
         }
         expand.textContent = open ? 'Ampliar mapa' : 'Minimizar mapa';
-        if (window.Chart && window.VD.app) setTimeout(function () { window.dispatchEvent(new Event('resize')); }, 50);
+        if (window.Chart && window.VD.app) setTimeout(function () { window.dispatchEvent(new Event('resize')); window.VD.app.redrawMap(); }, 80);
       });
       mapTitle.after(expand);
     }

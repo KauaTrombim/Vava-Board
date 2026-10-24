@@ -71,7 +71,8 @@
         <!-- Rounds + mapa sincronizados -->
         <section class="grid gap-4 lg:grid-cols-12">
           <article class="cut bg-panel p-4 order-last lg:col-span-5"><div class="mb-3 flex items-center gap-2"><h2 class="font-display text-2xl font-semibold">Rounds</h2>
-              <span data-icon="info" class="cursor-help text-mute" title="Clique em um round para ver os abates e destacá-los no mapa. Clique de novo para voltar a todos."></span></div>
+              <span data-icon="info" class="cursor-help text-mute" title="Clique em um round para ver os abates e destacá-los no mapa. Clique de novo para voltar a todos."></span>
+              <div id="roundNav" class="ml-auto flex flex-wrap items-center gap-1"></div></div>
             <div id="timeline" class="flex flex-wrap gap-1.5"></div>
             <div id="roundDetail" class="mt-4 border-t border-line pt-3 text-sm"></div>
           </article>
@@ -81,6 +82,7 @@
               <span class="flex items-center gap-1" title="Abates da sua equipe"><i class="h-2.5 w-2.5 rounded-full bg-ally"></i>Aliados</span>
               <span class="flex items-center gap-1" title="Abates inimigos"><i class="h-2.5 w-2.5 rounded-full bg-enemy"></i>Inimigos</span>
               <span class="flex items-center gap-1" title="Abates do jogador em destaque"><i class="h-2.5 w-2.5 rounded-full bg-accent"></i>Jogador</span>
+              <span class="flex items-center gap-1" title="Abates do round anterior (modo comparação)"><i class="h-2.5 w-2.5 rounded-full border-2 border-mute"></i>Round anterior</span>
               <span class="flex items-center gap-1" title="Spike plantada"><i class="h-0 w-0 border-x-[5px] border-b-[9px] border-x-transparent border-b-ink"></i>Spike</span>
             </div>
             <div id="mapFilters" class="mb-2 flex flex-wrap gap-3 text-xs text-mute">
@@ -89,6 +91,7 @@
               <label class="flex items-center gap-1"><input type="checkbox" data-map-filter="heat" />Mapa térmico</label>
               <label class="flex items-center gap-1" title="Mostra onde o eliminador estava no momento do abate"><input type="checkbox" data-map-filter="killer" />Posição do eliminador</label>
               <label class="flex items-center gap-1"><input type="checkbox" data-map-filter="player" />Foco no jogador</label>
+              <div id="mapRoundNav" class="basis-full"></div>
             </div>
             <div id="mapBox" class="relative mx-auto aspect-square w-full max-w-lg">
               <img id="mapImg" class="mapimg absolute inset-0 h-full w-full select-none" alt="" />
